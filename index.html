@@ -1,0 +1,563 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="中文字幕">
+<meta name="theme-color" content="#000000">
+<title>中文语音显示</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+
+  :root {
+    --ink: #f5f0e8;
+    --bg: #0a0a0a;
+    --accent: #c8a96e;
+    --dim: rgba(245,240,232,0.25);
+  }
+
+  html, body {
+    width: 100%; height: 100%;
+    background: var(--bg);
+    color: var(--ink);
+    font-family: 'Noto Serif SC', 'STSong', 'SimSun', serif;
+    overflow: hidden;
+    touch-action: none;
+    user-select: none;
+  }
+
+  /* 배경 격자 패턴 */
+  body::before {
+    content: '';
+    position: fixed; inset: 0;
+    background-image:
+      linear-gradient(rgba(200,169,110,0.04) 1px, transparent 1px),
+      linear-gradient(90deg, rgba(200,169,110,0.04) 1px, transparent 1px);
+    background-size: 60px 60px;
+    pointer-events: none;
+    z-index: 0;
+  }
+
+  #app {
+    position: fixed; inset: 0;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    z-index: 1;
+    padding: env(safe-area-inset-top) env(safe-area-inset-right) env(safe-area-inset-bottom) env(safe-area-inset-left);
+  }
+
+  /* 상단 장식선 */
+  .top-bar {
+    position: fixed;
+    top: calc(env(safe-area-inset-top) + 18px);
+    left: 0; right: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 12px;
+    z-index: 10;
+  }
+  .top-bar .line { flex: 1; max-width: 80px; height: 1px; background: var(--dim); }
+  .top-bar .label {
+    font-size: 11px;
+    letter-spacing: 0.3em;
+    color: var(--dim);
+    font-family: 'SF Pro Text', system-ui, sans-serif;
+    text-transform: uppercase;
+  }
+
+  /* 메인 텍스트 영역 */
+  #text-display {
+    width: 100%;
+    padding: 0 28px;
+    text-align: center;
+    position: relative;
+    min-height: 60vh;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 24px;
+  }
+
+  #main-text {
+    font-size: clamp(52px, 14vw, 120px);
+    line-height: 1.15;
+    font-weight: 900;
+    color: var(--ink);
+    letter-spacing: 0.05em;
+    word-break: break-all;
+    transition: opacity 0.3s;
+    text-shadow: 0 0 80px rgba(200,169,110,0.15);
+    position: relative;
+  }
+
+  #main-text.interim {
+    color: var(--accent);
+    opacity: 0.7;
+  }
+
+  #main-text.flash {
+    animation: textFlash 0.4s ease;
+  }
+
+  @keyframes textFlash {
+    0% { opacity: 0; transform: scale(0.92); }
+    60% { opacity: 1; transform: scale(1.03); }
+    100% { opacity: 1; transform: scale(1); }
+  }
+
+  /* 핀인 표시 */
+  #pinyin-text {
+    font-size: clamp(16px, 4vw, 28px);
+    color: var(--accent);
+    letter-spacing: 0.15em;
+    font-family: 'SF Pro Text', system-ui, sans-serif;
+    font-weight: 300;
+    opacity: 0;
+    transition: opacity 0.5s;
+    min-height: 1.5em;
+  }
+  #pinyin-text.visible { opacity: 0.8; }
+
+  /* 플레이스홀더 */
+  .placeholder {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 16px;
+    opacity: 0.3;
+  }
+  .placeholder .big-char {
+    font-size: clamp(80px, 20vw, 160px);
+    font-weight: 900;
+    color: var(--ink);
+    line-height: 1;
+  }
+  .placeholder .hint {
+    font-size: 13px;
+    letter-spacing: 0.2em;
+    font-family: system-ui, sans-serif;
+    color: var(--dim);
+  }
+
+  /* 히스토리 */
+  #history {
+    position: fixed;
+    top: 0; left: 0; right: 0; bottom: 0;
+    display: flex;
+    flex-direction: column;
+    justify-content: flex-end;
+    padding-bottom: 140px;
+    pointer-events: none;
+    z-index: 2;
+    overflow: hidden;
+  }
+  .history-item {
+    text-align: center;
+    font-size: clamp(14px, 3.5vw, 20px);
+    color: rgba(245,240,232,0.18);
+    padding: 4px 32px;
+    letter-spacing: 0.05em;
+    transition: all 0.4s;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  .history-item:last-child { color: rgba(245,240,232,0.3); font-size: clamp(16px, 4vw, 24px); }
+
+  /* 하단 컨트롤 */
+  #controls {
+    position: fixed;
+    bottom: calc(env(safe-area-inset-bottom) + 32px);
+    left: 0; right: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 24px;
+    z-index: 10;
+  }
+
+  /* 마이크 버튼 */
+  #mic-btn {
+    width: 80px; height: 80px;
+    border-radius: 50%;
+    border: 2px solid var(--accent);
+    background: transparent;
+    cursor: pointer;
+    display: flex; align-items: center; justify-content: center;
+    position: relative;
+    transition: all 0.3s;
+    -webkit-appearance: none;
+    outline: none;
+  }
+  #mic-btn:active { transform: scale(0.93); }
+  #mic-btn.listening {
+    border-color: #e05555;
+    background: rgba(224,85,85,0.1);
+    animation: micPulse 1.5s ease-in-out infinite;
+  }
+  @keyframes micPulse {
+    0%, 100% { box-shadow: 0 0 0 0 rgba(224,85,85,0.4); }
+    50% { box-shadow: 0 0 0 20px rgba(224,85,85,0); }
+  }
+  #mic-btn svg { width: 32px; height: 32px; }
+  #mic-btn .mic-icon { fill: var(--accent); transition: fill 0.3s; }
+  #mic-btn.listening .mic-icon { fill: #e05555; }
+
+  /* 사이드 버튼 */
+  .side-btn {
+    width: 48px; height: 48px;
+    border-radius: 50%;
+    border: 1px solid var(--dim);
+    background: transparent;
+    cursor: pointer;
+    display: flex; align-items: center; justify-content: center;
+    -webkit-appearance: none;
+    outline: none;
+    transition: all 0.2s;
+  }
+  .side-btn:active { transform: scale(0.9); background: rgba(245,240,232,0.05); }
+  .side-btn svg { width: 20px; height: 20px; stroke: var(--dim); fill: none; stroke-width: 1.8; stroke-linecap: round; }
+
+  /* 상태 표시 */
+  #status {
+    position: fixed;
+    top: calc(env(safe-area-inset-top) + 52px);
+    left: 0; right: 0;
+    text-align: center;
+    font-size: 11px;
+    letter-spacing: 0.25em;
+    font-family: system-ui, sans-serif;
+    color: var(--dim);
+    transition: color 0.3s;
+    z-index: 10;
+  }
+  #status.active { color: var(--accent); }
+  #status.error { color: #e05555; }
+
+  /* 음성 파형 */
+  #waveform {
+    position: fixed;
+    bottom: calc(env(safe-area-inset-bottom) + 130px);
+    left: 0; right: 0;
+    height: 40px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 4px;
+    z-index: 5;
+    opacity: 0;
+    transition: opacity 0.3s;
+  }
+  #waveform.visible { opacity: 1; }
+  .wave-bar {
+    width: 3px;
+    background: var(--accent);
+    border-radius: 2px;
+    height: 6px;
+    transition: height 0.1s;
+  }
+
+  /* 글씨 크기 조절 버튼 */
+  #font-size-display {
+    font-size: 11px;
+    color: var(--dim);
+    font-family: system-ui, sans-serif;
+    letter-spacing: 0.1em;
+    min-width: 36px;
+    text-align: center;
+  }
+
+  /* 진입 애니메이션 */
+  @keyframes fadeUp {
+    from { opacity: 0; transform: translateY(20px); }
+    to { opacity: 1; transform: translateY(0); }
+  }
+  .top-bar, #status, #controls { animation: fadeUp 0.8s ease both; }
+  .top-bar { animation-delay: 0.1s; }
+  #status { animation-delay: 0.2s; }
+  #controls { animation-delay: 0.3s; }
+</style>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Noto+Serif+SC:wght@400;700;900&display=swap" rel="stylesheet">
+</head>
+<body>
+
+<div class="top-bar">
+  <div class="line"></div>
+  <span class="label">中文语音显示</span>
+  <div class="line"></div>
+</div>
+
+<div id="status">탭하여 시작</div>
+
+<div id="app">
+  <div id="text-display">
+    <div class="placeholder" id="placeholder">
+      <div class="big-char">語</div>
+      <div class="hint">중국어로 말하세요</div>
+    </div>
+    <div id="main-text" style="display:none"></div>
+    <div id="pinyin-text"></div>
+  </div>
+</div>
+
+<div id="history"></div>
+
+<div id="waveform">
+  <div class="wave-bar" id="w1"></div>
+  <div class="wave-bar" id="w2"></div>
+  <div class="wave-bar" id="w3"></div>
+  <div class="wave-bar" id="w4"></div>
+  <div class="wave-bar" id="w5"></div>
+  <div class="wave-bar" id="w6"></div>
+  <div class="wave-bar" id="w7"></div>
+</div>
+
+<div id="controls">
+  <!-- 글씨 작게 -->
+  <button class="side-btn" id="font-down-btn" onclick="changeFontSize(-1)">
+    <svg viewBox="0 0 24 24"><path d="M5 12h14M12 5v14" style="stroke-width:2"/><text x="3" y="20" style="font-size:8px;fill:var(--dim);stroke:none">A</text></svg>
+  </button>
+
+  <!-- 마이크 -->
+  <button id="mic-btn" onclick="toggleListen()">
+    <svg viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
+      <path class="mic-icon" d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z"/>
+      <path class="mic-icon" d="M19 10v2a7 7 0 0 1-14 0v-2M12 19v4M8 23h8" style="fill:none;stroke:var(--accent);stroke-width:1.8;stroke-linecap:round" id="mic-path"/>
+    </svg>
+  </button>
+
+  <!-- 지우기 -->
+  <button class="side-btn" id="clear-btn" onclick="clearText()">
+    <svg viewBox="0 0 24 24"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14H6L5 6"/><path d="M10 11v6M14 11v6"/><path d="M9 6V4h6v2"/></svg>
+  </button>
+</div>
+
+<script>
+  // ── 상태 ──────────────────────────────────────────
+  let recognition = null;
+  let isListening = false;
+  let fontSizeLevel = 3; // 1~5
+  let history = [];
+  let waveInterval = null;
+  let restartTimer = null;
+  let finalBuffer = '';
+
+  const fontSizes = ['clamp(36px,9vw,72px)', 'clamp(44px,11vw,90px)', 'clamp(52px,14vw,120px)', 'clamp(64px,17vw,150px)', 'clamp(80px,20vw,180px)'];
+
+  const $ = id => document.getElementById(id);
+  const micBtn = $('mic-btn');
+  const mainText = $('main-text');
+  const pinyinText = $('pinyin-text');
+  const statusEl = $('status');
+  const historyEl = $('history');
+  const placeholder = $('placeholder');
+  const waveform = $('waveform');
+  const waveBars = [1,2,3,4,5,6,7].map(i => $('w'+i));
+
+  // ── 마이크 경로 색상 업데이트 ──────────────────────
+  const micPath = $('mic-path');
+
+  function updateMicPathColor(listening) {
+    const color = listening ? '#e05555' : 'var(--accent)';
+    micPath.style.stroke = color;
+  }
+
+  // ── 음성 인식 초기화 ─────────────────────────────
+  function initRecognition() {
+    const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
+    if (!SR) return null;
+
+    const r = new SR();
+    r.lang = 'zh-CN';
+    r.continuous = true;
+    r.interimResults = true;
+    r.maxAlternatives = 1;
+
+    r.onstart = () => {
+      isListening = true;
+      micBtn.classList.add('listening');
+      updateMicPathColor(true);
+      statusEl.textContent = '듣는 중...';
+      statusEl.className = 'active';
+      startWave();
+    };
+
+    r.onresult = (e) => {
+      let interim = '';
+      let finalResult = '';
+
+      for (let i = e.resultIndex; i < e.results.length; i++) {
+        const t = e.results[i][0].transcript;
+        if (e.results[i].isFinal) {
+          finalResult += t;
+        } else {
+          interim += t;
+        }
+      }
+
+      if (finalResult) {
+        finalBuffer += finalResult;
+        showText(finalBuffer, false);
+        addToHistory(finalBuffer);
+      } else if (interim) {
+        showText((finalBuffer + interim).trim(), true);
+      }
+    };
+
+    r.onerror = (e) => {
+      if (e.error === 'no-speech') return;
+      if (e.error === 'not-allowed') {
+        statusEl.textContent = '마이크 권한 필요';
+        statusEl.className = 'error';
+        stopAll();
+        return;
+      }
+      if (isListening) scheduleRestart();
+    };
+
+    r.onend = () => {
+      if (isListening) scheduleRestart();
+    };
+
+    return r;
+  }
+
+  function scheduleRestart() {
+    clearTimeout(restartTimer);
+    restartTimer = setTimeout(() => {
+      if (isListening) {
+        try { recognition.start(); } catch(e) {}
+      }
+    }, 300);
+  }
+
+  // ── 토글 ─────────────────────────────────────────
+  function toggleListen() {
+    if (isListening) {
+      stopAll();
+    } else {
+      startListen();
+    }
+  }
+
+  function startListen() {
+    if (!recognition) recognition = initRecognition();
+    if (!recognition) {
+      statusEl.textContent = '이 브라우저는 음성인식 미지원';
+      statusEl.className = 'error';
+      return;
+    }
+    finalBuffer = '';
+    try { recognition.start(); } catch(e) {}
+  }
+
+  function stopAll() {
+    isListening = false;
+    clearTimeout(restartTimer);
+    if (recognition) { try { recognition.stop(); } catch(e) {} }
+    micBtn.classList.remove('listening');
+    updateMicPathColor(false);
+    statusEl.textContent = '탭하여 시작';
+    statusEl.className = '';
+    stopWave();
+  }
+
+  // ── 텍스트 표시 ─────────────────────────────────
+  function showText(text, isInterim) {
+    if (!text) return;
+    placeholder.style.display = 'none';
+    mainText.style.display = 'block';
+    mainText.style.fontSize = fontSizes[fontSizeLevel - 1];
+
+    if (isInterim) {
+      mainText.className = 'interim';
+    } else {
+      mainText.className = 'flash';
+    }
+    mainText.textContent = text;
+  }
+
+  function addToHistory(text) {
+    if (!text.trim()) return;
+    history.push(text);
+    if (history.length > 3) history.shift();
+    renderHistory();
+  }
+
+  function renderHistory() {
+    historyEl.innerHTML = '';
+    // 현재 표시 텍스트 제외하고 이전 것만
+    const prev = history.slice(0, -1);
+    prev.forEach((t, i) => {
+      const div = document.createElement('div');
+      div.className = 'history-item';
+      div.textContent = t;
+      historyEl.appendChild(div);
+    });
+  }
+
+  // ── 지우기 ────────────────────────────────────────
+  function clearText() {
+    finalBuffer = '';
+    history = [];
+    mainText.textContent = '';
+    mainText.style.display = 'none';
+    mainText.className = '';
+    pinyinText.textContent = '';
+    pinyinText.className = '';
+    historyEl.innerHTML = '';
+    placeholder.style.display = 'flex';
+  }
+
+  // ── 글씨 크기 ─────────────────────────────────────
+  function changeFontSize(dir) {
+    fontSizeLevel = Math.max(1, Math.min(5, fontSizeLevel + dir));
+    if (mainText.style.display !== 'none') {
+      mainText.style.fontSize = fontSizes[fontSizeLevel - 1];
+    }
+  }
+
+  // 사이드 버튼 클릭으로 크기 조절 (좌=작게, 우=크게)
+  $('font-down-btn').onclick = () => changeFontSize(-1);
+  $('clear-btn').onclick = clearText;
+
+  // 텍스트 탭으로 크기 토글
+  mainText.addEventListener('click', () => {
+    fontSizeLevel = fontSizeLevel >= 5 ? 1 : fontSizeLevel + 1;
+    mainText.style.fontSize = fontSizes[fontSizeLevel - 1];
+  });
+
+  // ── 파형 애니메이션 ──────────────────────────────
+  function startWave() {
+    waveform.classList.add('visible');
+    waveInterval = setInterval(() => {
+      waveBars.forEach(bar => {
+        const h = Math.random() * 32 + 4;
+        bar.style.height = h + 'px';
+        bar.style.opacity = 0.4 + Math.random() * 0.6;
+      });
+    }, 100);
+  }
+
+  function stopWave() {
+    waveform.classList.remove('visible');
+    clearInterval(waveInterval);
+    waveBars.forEach(b => { b.style.height = '6px'; });
+  }
+
+  // ── 화면 잠금 방지 (iOS Wake Lock 대안) ──────────
+  setInterval(() => {
+    if (isListening) {
+      // keep alive
+    }
+  }, 10000);
+</script>
+</body>
+</html>
